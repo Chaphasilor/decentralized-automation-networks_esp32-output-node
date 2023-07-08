@@ -4,7 +4,7 @@ use log::*;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
 };
-use anyhow::{bail, Result};
+use anyhow::{Result};
 use std::{net::{UdpSocket, SocketAddr}, time::{SystemTime, UNIX_EPOCH}};
 
 pub mod wifi;
@@ -17,6 +17,8 @@ pub struct Config {
     wifi_ssid: &'static str,
     #[default("")]
     wifi_psk: &'static str,
+    #[default(21001)]
+    port: u16,
 }
 
 fn main() -> Result<()> {
@@ -57,7 +59,7 @@ fn main() -> Result<()> {
     info!("IP (sta): {}", wifi_interface.sta_netif().get_ip_info()?.ip);
     info!("IP (ap): {}", wifi_interface.ap_netif().get_ip_info()?.ip);
 
-    let socket_address = SocketAddr::from(([0, 0, 0, 0], 29000));
+    let socket_address = SocketAddr::from(([0, 0, 0, 0], app_config.port));
     info!("socket address created");
     let socket = UdpSocket::bind(socket_address)?;
     info!("socket bound");
@@ -71,16 +73,35 @@ fn main() -> Result<()> {
         // let message = String::from_utf8(buffer.into())?;
         let message = String::from_utf8_lossy(&buffer[..n]).into_owned(); // !!! from_utf8() triggers a reset
         let received = SystemTime::now();
-        println!("received message from '{source}' at {received}: {message}", source=addr,  received=received.duration_since(UNIX_EPOCH).unwrap().as_millis(), message=message);
+        info!("received message from '{source}' at {received}: {message}", source=addr,  received=received.duration_since(UNIX_EPOCH).unwrap().as_millis(), message=message);
 
-        // Inverse logic to turn LED on
-        led_pin.set_low().unwrap();
-        info!("LED ON");
-        FreeRtos::delay_ms(100);
+        let json: serde_json::Value = serde_json::from_str(&message).expect("Couldn't parse JSON");
+        if let Some(message_type) = json["type"].as_str() {
+            match message_type {
+                "udpPing" => {
+                    let start = SystemTime::now();
+                    let time = start.duration_since(std::time::UNIX_EPOCH).expect("Couldn't get system time");
+                    let return_buf = (time.as_micros() as u64).to_be_bytes();
+                    let return_address = json["replyTo"].as_str().unwrap().parse::<SocketAddr>().expect("No return address given");
 
-        led_pin.set_high().unwrap();
-        info!("LED OFF");
-        FreeRtos::delay_ms(100);
+                    // send current system time back to sender
+                    socket.send_to(&return_buf, return_address).unwrap();
+                    warn!("Sent UDP ping response to {}", return_address);
+                },
+                _ => {
+                    info!("Received message: {}", json);
+                    // Inverse logic to turn LED on
+                    led_pin.set_low().unwrap();
+                    info!("LED ON");
+                    FreeRtos::delay_ms(100);
+
+                    led_pin.set_high().unwrap();
+                    info!("LED OFF");
+                    FreeRtos::delay_ms(100);
+                }
+            }
+        }
+
     }
 
 }
