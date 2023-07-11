@@ -11,6 +11,7 @@ pub mod wifi;
 
 use crate::wifi::wifi;
 
+// config struct. the values are read in from the `cfg.toml` file in the project root
 #[toml_cfg::toml_config]
 pub struct Config {
     #[default("")]
@@ -27,12 +28,6 @@ fn main() -> Result<()> {
     esp_idf_sys::link_patches();
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
-    // println!("Hello, world!");
-
-    // // Get all the peripherals
-    // let peripherals = Peripherals::take().unwrap();
-    // // Initialize Pin 8 as an output to drive the LED
-    // let mut led = peripherals.pins.gpio4.into_output().unwrap();
 
     // !!! pins that should not be used on ESP32: 6-11, 16-17
     // those are reserved for SPI and trying to use them will result in a watchdog timer reset
@@ -56,7 +51,7 @@ fn main() -> Result<()> {
         sysloop,
     ).expect("Couldn't connect to WiFi!");
 
-    info!("IP (sta): {}", wifi_interface.sta_netif().get_ip_info()?.ip);
+    info!("IP (client): {}", wifi_interface.sta_netif().get_ip_info()?.ip);
     info!("IP (ap): {}", wifi_interface.ap_netif().get_ip_info()?.ip);
 
     let socket_address = SocketAddr::from(([0, 0, 0, 0], app_config.port));
@@ -79,6 +74,7 @@ fn main() -> Result<()> {
         if let Some(message_type) = json["type"].as_str() {
             match message_type {
                 "udpPing" => {
+                    // respond to ping with local clock time
                     let start = SystemTime::now();
                     let time = start.duration_since(std::time::UNIX_EPOCH).expect("Couldn't get system time");
                     let return_buf = (time.as_micros() as u64).to_be_bytes();

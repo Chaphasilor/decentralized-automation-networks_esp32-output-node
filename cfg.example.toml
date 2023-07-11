@@ -1,0 +1,4 @@
+[esp-output-node]
+wifi_ssid = "Test SSID"
+wifi_psk = "hunter2"
+port = 21001
